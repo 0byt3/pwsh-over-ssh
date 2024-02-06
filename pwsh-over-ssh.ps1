@@ -285,10 +285,6 @@ if ($sshdExistingVer -lt $OPENSSH_VER -and $sshdExistingExe -and -not $canInstal
 
   if ($sshdWmiApp) {
     Write-Output "Uninstalling OpenSSH version $($sshdExistingVer) using msiexec.exe";
-    $randomDigits = Get-RandomChars -Count 5;
-    $stdErrPath = "$env:TEMP\stdErr.$($randomDigits).txt";
-    $stdOutPath = "$env:TEMP\stdOut.$($randomDigits).txt";
-    Remove-Variable -Name randomDigits -ErrorAction SilentlyContinue;
     $sshdUninstallMsiProc = Start-Process -FilePath msiexec.exe `
         -ArgumentList '/x',$sshdWmiApp.IdentifyingNumber,"/qn" `
         -Verb RunAs `
