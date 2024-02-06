@@ -128,7 +128,7 @@ Function Get-RandomChars {
   param([Int]$Count);
   $characters = 65..90 | Foreach-Object -Process { [char]$_ }
   $characters += @(0,1,2,3,4,5,6,7,8,9);
-  $characters | Get-Random -Count $Count;
+  ($characters | Get-Random -Count $Count) -join '';
   Remove-Variable -Name characters -ErrorAction SilentlyContinue;
 }
 
@@ -297,8 +297,7 @@ if ($sshdExistingVer -lt $OPENSSH_VER -and $sshdExistingExe -and -not $canInstal
         -PassThru
 
     if (Get-Service -Name sshd -ErrorAction SilentlyContinue) {
-      Write-Error "Failed to uninstall OpenSSH Win64. MsiExec exit code = $($sshdUninstallMsiProc.ExitCode).";
-      Exit $sshdUninstallMsiProc.ExitCode;
+      throw "Failed to uninstall OpenSSH Win64. MsiExec exit code = $($sshdUninstallMsiProc.ExitCode).";
     }
 
     Write-Output "Ensuring that the existing OpenSSH directory is not in the PATH environment variable";
@@ -314,8 +313,7 @@ if ($sshdExistingVer -lt $OPENSSH_VER -and $sshdExistingExe -and -not $canInstal
     $sshdUninstallScriptExit = $LASTEXITCODE;
 
     if (Get-Service -Name sshd -ErrorAction SilentlyContinue) {
-      Write-Error "Failed to uninstall OpenSSH Win64. Script exit code = $($sshdUninstallScriptExit). Script output:`n$($sshdUninstallScriptOut)";
-      Exit $sshdUninstallScriptExit;
+      throw "Failed to uninstall OpenSSH Win64. Script exit code = $($sshdUninstallScriptExit). Script output:`n$($sshdUninstallScriptOut)";
     }
 
     Remove-Item -Path $sshdExistingExe.DirectoryName -Recurse -Force -Confirm:$false -ErrorAction SilentlyContinue;
@@ -374,14 +372,13 @@ if ($canInstallSSHViaWinCap -and $isWinCapOpenSSHInstalled) {
     Remove-Item -Path $stdErrPath -Force -Confirm:$false -ErrorAction SilentlyContinue;
     $stdOut = Get-Content -Path $stdOutPath -Raw;
     Remove-Item -Path $stdOutPath -Force -Confirm:$false -ErrorAction SilentlyContinue;
-    Write-Error @"
+    throw @"
 Failed to uninstall OpenSSH Win64. Script exit code = $($sshdInstallProc.ExitCode)
 * msiexec.exe StandardError:
 $stdErr
 * msiexec.exe StandardOut:
 $stdOut
 "@;
-    Exit $sshdInstallProc.ExitCode;
   }
   
   $sshdExePath = Get-CimInstance -ClassName Win32_Service -Filter "Name = 'sshd'" |
@@ -506,14 +503,13 @@ if ($existingPwshExe -or $existingPwshApp) {
         Remove-Item -Path $stdErrPath -Force -Confirm:$false -ErrorAction SilentlyContinue;
         $stdOut = Get-Content -Path $stdOutPath -Raw;
         Remove-Item -Path $stdOutPath -Force -Confirm:$false -ErrorAction SilentlyContinue;
-        Write-Error @"
+        throw @"
 Failed to uninstall PowerShell Core. MsiExec exit code = $($sshdUninstallMsiProc.ExitCode).
 * msiexec.exe Standard Error:
 $stdErr
 * msiexec.exe Standard Out:
 $stdOut
 "@
-        Exit $sshdUninstallMsiProc.ExitCode;
       } 
     }
 
@@ -566,14 +562,13 @@ if (-not $existingPwshExe) {
     Remove-Item -Path $stdErrPath -Force -Confirm:$false -ErrorAction SilentlyContinue;
     $stdOut = Get-Content -Path $stdOutPath -Raw;
     Remove-Item -Path $stdOutPath -Force -Confirm:$false -ErrorAction SilentlyContinue;
-    Write-Error @"
+    throw @"
 Failed to install PowerShell Core. MsiExec exit code = $($sshdUninstallMsiProc.ExitCode).
 * msiexec.exe Standard Error:
 $stdErr
 * msiexec.exe Standard Out:
 $stdOut
 "@
-    Exit $sshdUninstallMsiProc.ExitCode;
   }
 
   Remove-Item -Path $stdErrPath,$stdOutPath -Confirm:$false -Force -ErrorAction SilentlyContinue;
