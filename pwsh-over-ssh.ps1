@@ -291,7 +291,6 @@ if ($sshdExistingVer -lt $OPENSSH_VER -and $sshdExistingExe -and -not $canInstal
     Remove-Variable -Name randomDigits -ErrorAction SilentlyContinue;
     $sshdUninstallMsiProc = Start-Process -FilePath msiexec.exe `
         -ArgumentList '/x',$sshdWmiApp.IdentifyingNumber,"/qn" `
-        -NoNewWindow `
         -Verb RunAs `
         -Wait `
         -PassThru
