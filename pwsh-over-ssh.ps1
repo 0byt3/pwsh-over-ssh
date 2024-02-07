@@ -161,8 +161,34 @@ Function RemoveFrom-PathEnv {
 }
 
 #region validate arguments
-
-if ($Port) {
+if ($PSBoundParameters.Keys -notcontains 'Port') {
+  $validAnswer = $false;
+  while (-not $validAnswer) {
+    $answer = Read-Host -Prompt "OpenSSH Port (1-65535) [22]";
+    Switch -Regex ($answer) {
+      '^[ \t]*$' {
+          $validAnswer = $true;
+          $openSSHPort = 22;
+        }
+      '^[0-9]+$' {
+          $p = [Int]::Parse($answer);
+          if ($p -lt 1) {
+            Write-Output "!! OpenSSH port must be greater than 0`n";
+          } elseif ($p -gt 65535) {
+            Write-Output "!! OpenSSH port must be less than 65535`n";
+          } else {
+            $validAnswer = $true;
+            $openSSHPort = $p;
+          }
+          Remove-Variable -Name p -ErrorAction SilentlyContinue;
+        }
+      default {
+          Write-Output "!! '$($answer)' is not valid. OpenSSH port must be a number between 1 and 65535`n";
+        }
+    }
+    Remove-Variable -Name answer -ErrorAction SilentlyContinue;
+  }
+} else {
   if ($Port -lt 1) {
     throw "OpenSSH Port must be greater than 0";
   }
@@ -170,37 +196,6 @@ if ($Port) {
     throw "OpenSSH Port must be less than 65535";
   }
   $openSSHPort = $Port;
-} else {
-  $openSSHPort = -1;
-}
-
-while ($openSSHPort -eq -1) {
-  $openSSHPort = Invoke-Command -ScriptBlock {
-    $response = Read-Host -Prompt "OpenSSH Port (1-65535) [22]";
-    $r = $response.Trim();
-    Remove-Variable -Name response -ErrorAction SilentlyContinue;
-    if ($r -eq '') {
-      return 22;
-    }
-
-    if ($r -notmatch '^[0-9]+$') {
-      Write-Host "OpenSSH Port must be a number" -ForegroundColor Red;
-      return -1;
-    }
-
-    $n = [Int]::Parse($r);
-    if ($n -lt 1) {
-      Write-Host "OpenSSH Port must be greater than 0" -ForegroundColor Red;
-      return -1;
-    }
-
-    if ($n -gt 65535) {
-      Write-Host "OpenSSH Port must be less than 65535" -ForegroundColor Red;
-      return -1;
-    }
-
-    return $n;
-  }
 }
 
 if ($PSBoundParameters.Keys -notcontains 'UpgradeSSH') {
@@ -464,8 +459,8 @@ if (-not (Get-NetFirewallRule -Name "$($FW_RULE_NAME)" -ErrorAction SilentlyCont
 
 $existingPwshExe = Get-PwshExeFile -All;
 $existingPwshApp = Get-CimInstance -ClassName Win32_Product -Filter "Name like 'PowerShell%'" |
-    Select-Object -Property @{n='Ver';e={[Version]$_.Version}} |
-    Sort-Object -Property Ver -Descending|
+    Select-Object -Property *,@{n='Ver';e={[Version]$_.Version}} |
+    Sort-Object -Property Ver -Descending |
     Select-Object -First 1;
 
 if ($existingPwshExe -or $existingPwshApp) {
@@ -474,37 +469,22 @@ if ($existingPwshExe -or $existingPwshApp) {
   } else {
     $existingPwshVersion = $existingPwshExe.Version;
   }
+
   if ($existingPwshVersion -lt $PWSH_VER -and -not $UpgradePwsh) {
-    Write-Output "PowerShell Core earlier version $($existingPwshExe.Version) installed which. Not upgrading.";
+    Write-Output "PowerShell Core earlier version $($existingPwshExe.Version) installed and not upgrading.";
   } elseif ($existingPwshVersion -lt $PWSH_VER -and $UpgradePwsh) {
 
     if ($existingPwshApp) {
       
       Write-Output "Uninstalling PowerShell Core version $($existingPwshExe.Version) using msiexec.exe";
-      $randomDigits = Get-RandomChars -Count 5;
-      $stdErrPath = "$env:TEMP\stdErr.$($randomDigits).txt";
-      $stdOutPath = "$env:TEMP\stdOut.$($randomDigits).txt";
-      Remove-Variable -Name randomDigits -ErrorAction SilentlyContinue;
       $pwshUninstallMsiProc = Start-Process -FilePath msiexec.exe `
-          -ArgumentList '/x',$existingPwshApp.IdentifyingNumber,"/qn" `
-          -NoNewWindow `
+          -ArgumentList @('/x',$existingPwshApp.IdentifyingNumber,'/qn') `
+          -Verb RunAs `
           -Wait `
-          -PassThru `
-          -RedirectStandardError $stdErrPath `
-          -RedirectStandardOutput $stdOutPath
+          -PassThru
 
       if ($pwshUninstallMsiProc.ExitCode -ne 0) {
-        $stdErr = Get-Content -Path $stdErrPath -Raw;
-        Remove-Item -Path $stdErrPath -Force -Confirm:$false -ErrorAction SilentlyContinue;
-        $stdOut = Get-Content -Path $stdOutPath -Raw;
-        Remove-Item -Path $stdOutPath -Force -Confirm:$false -ErrorAction SilentlyContinue;
-        throw @"
-Failed to uninstall PowerShell Core. MsiExec exit code = $($sshdUninstallMsiProc.ExitCode).
-* msiexec.exe Standard Error:
-$stdErr
-* msiexec.exe Standard Out:
-$stdOut
-"@
+        throw "Failed to uninstall PowerShell Core. MsiExec exit code = $($sshdUninstallMsiProc.ExitCode).";
       } 
     }
 
@@ -614,7 +594,7 @@ foreach ($line in (Get-Content -Path "$($env:ProgramData)\ssh\sshd_config")) {
   if ($beforeMatchesLine -eq -1) {
 
     if ($line -match '^[ \t]*Port') {
-      $newSshdConfig += "Port $($Port)";
+      $newSshdConfig += "Port $($openSSHPort)";
       $portNeedsUpdate = $false;
       $i++;
       continue;
@@ -636,7 +616,7 @@ foreach ($line in (Get-Content -Path "$($env:ProgramData)\ssh\sshd_config")) {
 
     if ($line -match '^[ \t]*ListenAddress[ \t]+([0-9]{1,3}\.){3}[0-9]{1,3}:') {
       $listenMatches = [Regex]::Matches($line, '^([ \t]*ListenAddress[ \t]+([0-9]{1,3}\.){3}[0-9]{1,3}):');
-      $newSshdConfig += "$($listenMatches.Groups[1]):$($Port)";
+      $newSshdConfig += "$($listenMatches.Groups[1]):$($openSSHPort)";
       $portNeedsUpdate = $false;
       Remove-Variable -Name listenMatches -ErrorAction SilentlyContinue;
       $i++;
@@ -648,7 +628,7 @@ foreach ($line in (Get-Content -Path "$($env:ProgramData)\ssh\sshd_config")) {
         $listenAddrLineNum = $i;
       }
       $listenMatches = [Regex]::Matches($line, '([\s\t]*ListenAddress[\s\t]+)(\[[0-9A-Fa-f:]+\]):');
-      $newSshdConfig += "$($listenMatches.Groups[1]) $($listenMatches.Groups[2]):$($Port)";
+      $newSshdConfig += "$($listenMatches.Groups[1]) $($listenMatches.Groups[2]):$($openSSHPort)";
       $portNeedsUpdate = $false;
       Remove-Variable -Name listenMatches -ErrorAction SilentlyContinue;
       $i++;
@@ -689,19 +669,19 @@ foreach ($line in (Get-Content -Path "$($env:ProgramData)\ssh\sshd_config")) {
 
 if ($portNeedsUpdate) {
   if ($portCommentLineNum -ne -1) {
-    $updatedSshdConfig = $newSshdConfig[0..$portCommentLineNum] + "Port $($Port)" + $newSshdConfig[$($portCommentLineNum + 1)..$($newSshdConfig.Length-1)];
+    $updatedSshdConfig = $newSshdConfig[0..$portCommentLineNum] + "Port $($openSSHPort)" + $newSshdConfig[$($portCommentLineNum + 1)..$($newSshdConfig.Length-1)];
     $newSshdConfig = $updatedSshdConfig;
     Remove-Variable -Name updatedSshdConfig -ErrorAction SilentlyContinue;
   } elseif ($listenAddrCommentLineNum -ne -1) {
-    $updatedSshdConfig = $newSshdConfig[0..$($listenAddrCommentLineNum-1)] + "Port $($Port)" + $newSshdConfig[$listenAddrCommentLineNum..$($newSshdConfig.Length-1)];
+    $updatedSshdConfig = $newSshdConfig[0..$($listenAddrCommentLineNum-1)] + "Port $($openSSHPort)" + $newSshdConfig[$listenAddrCommentLineNum..$($newSshdConfig.Length-1)];
     $newSshdConfig = $updatedSshdConfig;
     Remove-Variable -Name updatedSshdConfig -ErrorAction SilentlyContinue;
   } elseif ($beforeMatchesLine -ne -1) {
-    $updatedSshdConfig = $newSshdConfig[0..$beforeMatchesLine] + "Port $($Port)" + $newSshdConfig[$($beforeMatchesLine+1)..$($newSshdConfig.Length-1)];
+    $updatedSshdConfig = $newSshdConfig[0..$beforeMatchesLine] + "Port $($openSSHPort)" + $newSshdConfig[$($beforeMatchesLine+1)..$($newSshdConfig.Length-1)];
     $newSshdConfig = $updatedSshdConfig;
     Remove-Variable -Name updatedSshdConfig -ErrorAction SilentlyContinue;
   } else {
-    $newSshdConfig += "Port $($Port)";
+    $newSshdConfig += "Port $($openSSHPort)";
   }
 
   if ($beforeMatchesLine -ne -1) {
